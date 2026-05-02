@@ -259,7 +259,16 @@ d3.csv('data/gender_gap_education_levels.csv')
         .attr('class', 'timeline-label')
         .text('Primary enrollment timeline');
 
-    const yearDisplay = timelineHeader.append('span')
+    const timelineControls = timelineHeader.append('div')
+        .attr('class', 'timeline-controls');
+
+    const playButton = timelineControls.append('button')
+        .attr('type', 'button')
+        .attr('id', 'timeline-play-button')
+        .attr('class', 'timeline-play-button')
+        .text('Play');
+
+    const yearDisplay = timelineControls.append('span')
         .attr('id','year-display')
         .attr('class', 'year-pill')
         .text(maxYear);
@@ -311,10 +320,40 @@ d3.csv('data/gender_gap_education_levels.csv')
     const remoteGeo = 'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson';
     const geojsonPromise = d3.json(localGeo).catch(() => d3.json(remoteGeo));
     let activeMapRender = 0;
+    let playInterval = null;
     const mapTooltip = d3.select('body')
         .append('div')
         .attr('class', 'map-tooltip')
         .style('display', 'none');
+
+    function updateYearControls(year) {
+        yearDisplay.text(year);
+        const percent = ((year - minYear) / (maxYear - minYear || 1)) * 100;
+        yearSlider.node().style.background = `linear-gradient(90deg, #1d4ed8 0%, #1d4ed8 ${percent}%, #d1d5db ${percent}%, #d1d5db 100%)`;
+        yearSlider.property('value', year);
+    }
+
+    function stopPlayback() {
+        if (playInterval) {
+            clearInterval(playInterval);
+            playInterval = null;
+        }
+        playButton.text('Play');
+        playButton.classed('is-playing', false);
+    }
+
+    function startPlayback() {
+        stopPlayback();
+        playButton.text('Pause');
+        playButton.classed('is-playing', true);
+
+        let currentYear = +yearSlider.property('value');
+        playInterval = setInterval(() => {
+            currentYear = currentYear >= maxYear ? minYear : currentYear + 5;
+            updateYearControls(currentYear);
+            drawForYear(currentYear);
+        }, 250);
+    }
 
     function drawForYear(year) {
         const renderId = ++activeMapRender;
@@ -450,18 +489,25 @@ d3.csv('data/gender_gap_education_levels.csv')
     }
 
     // initial draw
+    updateYearControls(maxYear);
     drawForYear(maxYear);
 
     yearSlider.on('input', function() {
         const y = +this.value;
-        yearDisplay.text(y);
-        const percent = ((y - minYear) / (maxYear - minYear || 1)) * 100;
-        this.style.background = `linear-gradient(90deg, #1d4ed8 0%, #1d4ed8 ${percent}%, #d1d5db ${percent}%, #d1d5db 100%)`;
+        updateYearControls(y);
+        stopPlayback();
         drawForYear(y);
     });
 
-    const initialPercent = ((maxYear - minYear) / (maxYear - minYear || 1)) * 100;
-    yearSlider.node().style.background = `linear-gradient(90deg, #1d4ed8 0%, #1d4ed8 ${initialPercent}%, #d1d5db ${initialPercent}%, #d1d5db 100%)`;
+    playButton.on('click', function() {
+        if (playInterval) {
+            stopPlayback();
+        } else {
+            startPlayback();
+        }
+    });
+
+    window.addEventListener('beforeunload', stopPlayback);
 
 })
 .catch(error => {
