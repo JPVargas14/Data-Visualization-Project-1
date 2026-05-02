@@ -234,6 +234,218 @@ d3.csv('data/gender_gap_education_levels.csv')
         updateCharts();
     });
 
+    // --- Choropleth maps (male / female) using non-OWID country rows ---
+    const nonOwidData = data.filter(d => !(d.code && d.code.startsWith('OWID_')));
+
+    // build year range for slider
+    const yearsAvailable = Array.from(new Set(nonOwidData.map(d => d.year))).sort((a,b)=>a-b);
+    const minYear = 1820;
+    const maxYear = 2020;
+
+    // controls for year selection
+    const mapsControl = d3.select('#app-container')
+        .append('div')
+        .attr('id', 'maps-controls')
+        .style('margin-top', '20px')
+        .style('margin-bottom', '8px');
+
+    const timelineWrap = mapsControl.append('div')
+        .attr('class', 'timeline-wrap');
+
+    const timelineHeader = timelineWrap.append('div')
+        .attr('class', 'timeline-header');
+
+    timelineHeader.append('span')
+        .attr('class', 'timeline-label')
+        .text('Primary enrollment timeline');
+
+    const yearDisplay = timelineHeader.append('span')
+        .attr('id','year-display')
+        .attr('class', 'year-pill')
+        .text(maxYear);
+
+    const timelineTrack = timelineWrap.append('div')
+        .attr('class', 'timeline-track');
+
+    timelineTrack.append('span')
+        .attr('class', 'timeline-endpoint timeline-start')
+        .text(minYear);
+
+    const sliderColumn = timelineTrack.append('div')
+        .attr('class', 'timeline-slider-column');
+
+    const yearSlider = sliderColumn.append('input')
+        .attr('type','range')
+        .attr('id','year-slider')
+        .attr('min',minYear)
+        .attr('max',maxYear)
+        .attr('step',5)
+        .attr('value',maxYear)
+        .attr('aria-label', 'Select year for choropleth maps');
+
+    const timelineTicks = sliderColumn.append('div')
+        .attr('class', 'timeline-ticks');
+
+    timelineTicks.selectAll('span')
+        .data(d3.range(minYear, maxYear + 1, 5))
+        .enter()
+        .append('span')
+        .attr('class', 'timeline-tick')
+        .style('left', d => `${((d - minYear) / (maxYear - minYear || 1)) * 100}%`);
+
+    timelineTrack.append('span')
+        .attr('class', 'timeline-endpoint timeline-end')
+        .text(maxYear);
+
+    // maps container
+    d3.select('#maps-row')?.remove();
+    const mapsContainer = d3.select('#app-container')
+        .append('div')
+        .attr('id', 'maps-row')
+        .style('display', 'flex')
+        .style('gap', '8px')
+        .style('margin-top', '10px');
+
+    // try local geojson first, fallback to remote
+    const localGeo = 'data/world.geojson';
+    const remoteGeo = 'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson';
+    const geojsonPromise = d3.json(localGeo).catch(() => d3.json(remoteGeo));
+    let activeMapRender = 0;
+
+    function drawForYear(year) {
+        const renderId = ++activeMapRender;
+        // clear maps
+        mapsContainer.selectAll('*').remove();
+
+        // build lookup maps: code -> year -> row, nameLower -> year -> row
+        const codeYearMap = new Map();
+        const nameYearMap = new Map();
+        nonOwidData.forEach(r => {
+            const code = r.code ? String(r.code).toUpperCase() : null;
+            const name = r.entity ? String(r.entity).toLowerCase() : null;
+            if (code) {
+                if (!codeYearMap.has(code)) codeYearMap.set(code, new Map());
+                codeYearMap.get(code).set(r.year, r);
+            }
+            if (name) {
+                if (!nameYearMap.has(name)) nameYearMap.set(name, new Map());
+                nameYearMap.get(name).set(r.year, r);
+            }
+        });
+
+        // load geojson once and ignore stale renders from earlier slider events
+        geojsonPromise.then(geo => {
+            if (renderId !== activeMapRender) {
+                return;
+            }
+
+            // compute values for this year
+            const femaleVals = [];
+            const maleVals = [];
+            geo.features.forEach(f => {
+                const props = f.properties || {};
+                const keys = [props.iso_a3, props.ISO_A3, props.ADM0_A3, props.iso_a2, props.name].map(v => v ? String(v) : null);
+                let row = null;
+                for (const k of keys) {
+                    if (!k) continue;
+                    const up = k.toUpperCase();
+                    const low = k.toLowerCase();
+                    if (codeYearMap.has(up) && codeYearMap.get(up).has(year)) { row = codeYearMap.get(up).get(year); break; }
+                    if (nameYearMap.has(low) && nameYearMap.get(low).has(year)) { row = nameYearMap.get(low).get(year); break; }
+                }
+                if (row) {
+                    const fval = parseFloat(row.f_primary_enrollment_rates_combined_wb);
+                    const mval = parseFloat(row.m_primary_enrollment_rates_combined_wb);
+                    if (!isNaN(fval)) femaleVals.push(fval);
+                    if (!isNaN(mval)) maleVals.push(mval);
+                }
+            });
+
+            const fExtent = d3.extent(femaleVals.length?femaleVals:[0]);
+            const mExtent = d3.extent(maleVals.length?maleVals:[0]);
+
+            const maleColor = d3.scaleLinear().domain([mExtent[0]||0, mExtent[1]||100]).range(['#e6f2ff','#08306b']);
+            const femaleColor = d3.scaleLinear().domain([fExtent[0]||0, fExtent[1]||100]).range(['#fff0f6','#ff1493']);
+
+            function drawMap(container, colorScale, key) {
+                const width = 520, height = 350;
+                const svg = container.append('svg').attr('width',width).attr('height',height);
+                const projection = d3.geoNaturalEarth1().scale(110).translate([width/2,height/2]);
+                const path = d3.geoPath().projection(projection);
+
+                const tip = d3.select('body').append('div').attr('class','map-tooltip').style('display','none');
+
+                svg.append('g').selectAll('path')
+                    .data(geo.features)
+                    .enter()
+                    .append('path')
+                    .attr('d', path)
+                    .attr('fill', d => {
+                        const props = d.properties || {};
+                        const keys = [props.iso_a3, props.ISO_A3, props.ADM0_A3, props.iso_a2, props.name].map(v => v ? String(v) : null);
+                        let row = null;
+                        for (const k of keys) {
+                            if (!k) continue;
+                            const up = k.toUpperCase();
+                            const low = k.toLowerCase();
+                            if (codeYearMap.has(up) && codeYearMap.get(up).has(year)) { row = codeYearMap.get(up).get(year); break; }
+                            if (nameYearMap.has(low) && nameYearMap.get(low).has(year)) { row = nameYearMap.get(low).get(year); break; }
+                        }
+                        if (row) {
+                            const v = key === 'male' ? parseFloat(row.m_primary_enrollment_rates_combined_wb) : parseFloat(row.f_primary_enrollment_rates_combined_wb);
+                            if (!isNaN(v)) return colorScale(v);
+                        }
+                        return '#ccc';
+                    })
+                    .attr('stroke','#999').attr('stroke-width',0.3)
+                    .on('mousemove', function(event,d){
+                        const props = d.properties || {};
+                        const keys = [props.iso_a3, props.ISO_A3, props.ADM0_A3, props.iso_a2, props.name].map(v => v ? String(v) : null);
+                        let row = null;
+                        for (const k of keys) {
+                            if (!k) continue;
+                            const up = k.toUpperCase();
+                            const low = k.toLowerCase();
+                            if (codeYearMap.has(up) && codeYearMap.get(up).has(year)) { row = codeYearMap.get(up).get(year); break; }
+                            if (nameYearMap.has(low) && nameYearMap.get(low).has(year)) { row = nameYearMap.get(low).get(year); break; }
+                        }
+                        let html = `<strong>${props.name || 'Unknown'}</strong><br>`;
+                        if (row) {
+                            const mv = parseFloat(row.m_primary_enrollment_rates_combined_wb);
+                            const fv = parseFloat(row.f_primary_enrollment_rates_combined_wb);
+                            html += `Year: ${row.year}<br>`;
+                            html += `Male: ${!isNaN(mv)?mv.toFixed(2)+'%':'N/A'}<br>`;
+                            html += `Female: ${!isNaN(fv)?fv.toFixed(2)+'%':'N/A'}`;
+                        } else html += 'No data';
+                        tip.style('display','block').html(html).style('left',(event.pageX+10)+'px').style('top',(event.pageY+10)+'px');
+                    })
+                    .on('mouseout', function(){ d3.selectAll('.map-tooltip').style('display','none').remove(); });
+
+                svg.append('text').attr('x',10).attr('y',18).style('font-weight','bold').text(key==='female'?'Female Primary Enrollment (%)':'Male Primary Enrollment (%)');
+            }
+
+            drawMap(mapsContainer.append('div').style('flex','1'), maleColor, 'male');
+            drawMap(mapsContainer.append('div').style('flex','1'), femaleColor, 'female');
+        }).catch(err => {
+            console.error('Error loading geojson:', err);
+            d3.select('#app-container').append('p').text('Could not load world map data.');
+        });
+    }
+
+    // initial draw
+    drawForYear(maxYear);
+
+    yearSlider.on('input', function() {
+        const y = +this.value;
+        yearDisplay.text(y);
+        const percent = ((y - minYear) / (maxYear - minYear || 1)) * 100;
+        this.style.background = `linear-gradient(90deg, #1d4ed8 0%, #1d4ed8 ${percent}%, #d1d5db ${percent}%, #d1d5db 100%)`;
+        drawForYear(y);
+    });
+
+    const initialPercent = ((maxYear - minYear) / (maxYear - minYear || 1)) * 100;
+    yearSlider.node().style.background = `linear-gradient(90deg, #1d4ed8 0%, #1d4ed8 ${initialPercent}%, #d1d5db ${initialPercent}%, #d1d5db 100%)`;
+
 })
 .catch(error => {
     console.error('Error loading the data');
