@@ -3,8 +3,17 @@
 }
 
 .map-tooltip {
+	position: absolute;
+	z-index: 20;
+	background: rgba(15, 23, 42, 0.92);
+	color: #ffffff;
+	padding: 8px 10px;
+	border-radius: 6px;
+	box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
 	font-family: sans-serif;
 	pointer-events: none;
+	font-size: 12px;
+	line-height: 1.35;
 }
 
 .timeline-wrap {
@@ -130,6 +139,35 @@
 
 #maps-row {
 	width: 100%;
+}
+
+.map-legend {
+	margin-top: 8px;
+	font-family: sans-serif;
+	font-size: 12px;
+	color: #334155;
+	max-width: 520px;
+}
+
+.map-legend-title {
+	font-weight: 700;
+	margin-bottom: 6px;
+}
+
+.map-legend-bar {
+	height: 12px;
+	border-radius: 999px;
+	overflow: hidden;
+	border: 1px solid rgba(148, 163, 184, 0.45);
+	box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.map-legend-labels {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 4px;
+	font-size: 11px;
+	color: #475569;
 }
 
 .map-legend {

@@ -311,6 +311,10 @@ d3.csv('data/gender_gap_education_levels.csv')
     const remoteGeo = 'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson';
     const geojsonPromise = d3.json(localGeo).catch(() => d3.json(remoteGeo));
     let activeMapRender = 0;
+    const mapTooltip = d3.select('body')
+        .append('div')
+        .attr('class', 'map-tooltip')
+        .style('display', 'none');
 
     function drawForYear(year) {
         const renderId = ++activeMapRender;
@@ -339,33 +343,51 @@ d3.csv('data/gender_gap_education_levels.csv')
                 return;
             }
 
-            // compute values for this year
-            const femaleVals = [];
-            const maleVals = [];
-            geo.features.forEach(f => {
-                const props = f.properties || {};
+            function getRowForFeature(feature) {
+                const props = feature.properties || {};
                 const keys = [props.iso_a3, props.ISO_A3, props.ADM0_A3, props.iso_a2, props.name].map(v => v ? String(v) : null);
-                let row = null;
                 for (const k of keys) {
                     if (!k) continue;
                     const up = k.toUpperCase();
                     const low = k.toLowerCase();
-                    if (codeYearMap.has(up) && codeYearMap.get(up).has(year)) { row = codeYearMap.get(up).get(year); break; }
-                    if (nameYearMap.has(low) && nameYearMap.get(low).has(year)) { row = nameYearMap.get(low).get(year); break; }
+                    if (codeYearMap.has(up) && codeYearMap.get(up).has(year)) {
+                        return codeYearMap.get(up).get(year);
+                    }
+                    if (nameYearMap.has(low) && nameYearMap.get(low).has(year)) {
+                        return nameYearMap.get(low).get(year);
+                    }
                 }
+                return null;
+            }
+
+            function getRateForRow(row, key) {
+                if (!row) return null;
+                const value = key === 'male'
+                    ? parseFloat(row.m_primary_enrollment_rates_combined_wb)
+                    : parseFloat(row.f_primary_enrollment_rates_combined_wb);
+                return Number.isFinite(value) && value > 0 ? value : null;
+            }
+
+            // compute values for this year
+            const femaleVals = [];
+            const maleVals = [];
+            geo.features.forEach(f => {
+                const row = getRowForFeature(f);
                 if (row) {
-                    const fval = parseFloat(row.f_primary_enrollment_rates_combined_wb);
-                    const mval = parseFloat(row.m_primary_enrollment_rates_combined_wb);
-                    if (!isNaN(fval)) femaleVals.push(fval);
-                    if (!isNaN(mval)) maleVals.push(mval);
+                    const fval = getRateForRow(row, 'female');
+                    const mval = getRateForRow(row, 'male');
+                    if (fval !== null) femaleVals.push(fval);
+                    if (mval !== null) maleVals.push(mval);
                 }
             });
 
-            const fExtent = d3.extent(femaleVals.length?femaleVals:[0]);
-            const mExtent = d3.extent(maleVals.length?maleVals:[0]);
+            const maleColor = d3.scaleSequential()
+                .domain([0, 100])
+                .interpolator(t => d3.interpolateRgb('#fff6f1', '#0d5d66')(t));
 
-            const maleColor = d3.scaleLinear().domain([mExtent[0]||0, mExtent[1]||100]).range(['#e6f2ff','#08306b']);
-            const femaleColor = d3.scaleLinear().domain([fExtent[0]||0, fExtent[1]||100]).range(['#fff0f6','#ff1493']);
+            const femaleColor = d3.scaleSequential()
+                .domain([0, 100])
+                .interpolator(t => d3.interpolateRgb('#f5edff', '#5600b8')(t));
 
             function drawMap(container, colorScale, key) {
                 const width = 520, height = 350;
@@ -373,55 +395,50 @@ d3.csv('data/gender_gap_education_levels.csv')
                 const projection = d3.geoNaturalEarth1().scale(110).translate([width/2,height/2]);
                 const path = d3.geoPath().projection(projection);
 
-                const tip = d3.select('body').append('div').attr('class','map-tooltip').style('display','none');
-
                 svg.append('g').selectAll('path')
                     .data(geo.features)
                     .enter()
                     .append('path')
                     .attr('d', path)
                     .attr('fill', d => {
-                        const props = d.properties || {};
-                        const keys = [props.iso_a3, props.ISO_A3, props.ADM0_A3, props.iso_a2, props.name].map(v => v ? String(v) : null);
-                        let row = null;
-                        for (const k of keys) {
-                            if (!k) continue;
-                            const up = k.toUpperCase();
-                            const low = k.toLowerCase();
-                            if (codeYearMap.has(up) && codeYearMap.get(up).has(year)) { row = codeYearMap.get(up).get(year); break; }
-                            if (nameYearMap.has(low) && nameYearMap.get(low).has(year)) { row = nameYearMap.get(low).get(year); break; }
-                        }
-                        if (row) {
-                            const v = key === 'male' ? parseFloat(row.m_primary_enrollment_rates_combined_wb) : parseFloat(row.f_primary_enrollment_rates_combined_wb);
-                            if (!isNaN(v)) return colorScale(v);
+                        const row = getRowForFeature(d);
+                        const value = getRateForRow(row, key);
+                        if (value !== null) {
+                            return colorScale(value);
                         }
                         return '#ccc';
                     })
                     .attr('stroke','#999').attr('stroke-width',0.3)
                     .on('mousemove', function(event,d){
                         const props = d.properties || {};
-                        const keys = [props.iso_a3, props.ISO_A3, props.ADM0_A3, props.iso_a2, props.name].map(v => v ? String(v) : null);
-                        let row = null;
-                        for (const k of keys) {
-                            if (!k) continue;
-                            const up = k.toUpperCase();
-                            const low = k.toLowerCase();
-                            if (codeYearMap.has(up) && codeYearMap.get(up).has(year)) { row = codeYearMap.get(up).get(year); break; }
-                            if (nameYearMap.has(low) && nameYearMap.get(low).has(year)) { row = nameYearMap.get(low).get(year); break; }
-                        }
-                        let html = `<strong>${props.name || 'Unknown'}</strong><br>`;
-                        if (row) {
-                            const mv = parseFloat(row.m_primary_enrollment_rates_combined_wb);
-                            const fv = parseFloat(row.f_primary_enrollment_rates_combined_wb);
+                        const row = getRowForFeature(d);
+                        const countryName = props.name || 'Unknown';
+                        const genderLabel = key === 'male' ? 'Male Primary Enrollment' : 'Female Primary Enrollment';
+                        let html = `<strong>${countryName}</strong><br>`;
+                        const value = getRateForRow(row, key);
+                        if (row && value !== null) {
                             html += `Year: ${row.year}<br>`;
-                            html += `Male: ${!isNaN(mv)?mv.toFixed(2)+'%':'N/A'}<br>`;
-                            html += `Female: ${!isNaN(fv)?fv.toFixed(2)+'%':'N/A'}`;
+                            html += `Enrollment: ${genderLabel}<br>`;
+                            html += `Rate: ${value.toFixed(2)}%`;
                         } else html += 'No data';
-                        tip.style('display','block').html(html).style('left',(event.pageX+10)+'px').style('top',(event.pageY+10)+'px');
+                        mapTooltip.style('display','block').html(html).style('left',(event.pageX+10)+'px').style('top',(event.pageY+10)+'px');
                     })
-                    .on('mouseout', function(){ d3.selectAll('.map-tooltip').style('display','none').remove(); });
+                    .on('mouseout', function(){ mapTooltip.style('display','none'); });
 
                 svg.append('text').attr('x',10).attr('y',18).style('font-weight','bold').text(key==='female'?'Female Primary Enrollment (%)':'Male Primary Enrollment (%)');
+
+                const legend = container.append('div').attr('class', 'map-legend');
+                legend.append('div')
+                    .attr('class', 'map-legend-title')
+                    .text(key === 'female' ? 'Female rate (0% to 100%)' : 'Male rate (0% to 100%)');
+
+                const legendBar = legend.append('div').attr('class', 'map-legend-bar');
+                legendBar.style('background', `linear-gradient(90deg, ${colorScale(0)} 0%, ${colorScale(50)} 50%, ${colorScale(100)} 100%)`);
+
+                const legendLabels = legend.append('div').attr('class', 'map-legend-labels');
+                legendLabels.append('span').text('0%');
+                legendLabels.append('span').text('50%');
+                legendLabels.append('span').text('100%');
             }
 
             drawMap(mapsContainer.append('div').style('flex','1'), maleColor, 'male');

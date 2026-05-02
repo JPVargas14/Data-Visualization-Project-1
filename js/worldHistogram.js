@@ -135,7 +135,7 @@ class WordHistogram {
       legend.append('rect')
           .attr('width', 4)
           .attr('height', 4)
-          .attr('fill', '#1F77B4');
+          .attr('fill', '#1b909a');
       legend.append('text')
           .attr('x', 10)
           .attr('y', 4)
@@ -146,7 +146,7 @@ class WordHistogram {
           .attr('y', 15)
           .attr('width', 4)
           .attr('height', 4)
-          .attr('fill', '#FF69B4');
+          .attr('fill', '#7900f1');
       legend.append('text')
           .attr('x', 10)
           .attr('y', 19)
@@ -180,13 +180,13 @@ class WordHistogram {
       vis.malePath = vis.chart.append('path')
           .attr('class', 'line male-line')
           .attr('fill', 'none')
-          .attr('stroke', '#1F77B4')
+          .attr('stroke', '#1b909a')
           .attr('stroke-width', 2);
 
       vis.femalePath = vis.chart.append('path')
           .attr('class', 'line female-line')
           .attr('fill', 'none')
-          .attr('stroke', '#FF69B4')
+          .attr('stroke', '#7900f1')
           .attr('stroke-width', 2);
 
       // Add hover overlay for tooltips
